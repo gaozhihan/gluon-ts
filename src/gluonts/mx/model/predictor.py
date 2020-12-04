@@ -11,33 +11,30 @@
 # express or implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-# Standard library imports
 
 import logging
-from pathlib import Path
-from typing import (
-    Callable,
-    Iterator,
-    List,
-    Optional,
-)
 from functools import partial
+from pathlib import Path
+from typing import Callable, Iterator, List, Optional
 
-# Third-party imports
 import mxnet as mx
 import numpy as np
 
-# First-party imports
-from gluonts.core.component import (
-    DType,
-    equals,
-)
+from gluonts.core.component import DType
 from gluonts.core.serde import dump_json, load_json
 from gluonts.dataset.common import DataEntry, Dataset
 from gluonts.dataset.loader import DataBatch, InferenceDataLoader
-from gluonts.mx.context import get_mxnet_context
 from gluonts.model.forecast import Forecast
-from gluonts.support.util import (
+from gluonts.model.forecast_generator import (
+    ForecastGenerator,
+    SampleForecastGenerator,
+    predict_to_numpy,
+)
+from gluonts.model.predictor import OutputTransform, Predictor
+from gluonts.mx.batchify import batchify
+from gluonts.mx.component import equals
+from gluonts.mx.context import get_mxnet_context
+from gluonts.mx.util import (
     export_repr_block,
     export_symb_block,
     get_hybrid_forward_input_names,
@@ -46,16 +43,6 @@ from gluonts.support.util import (
     import_symb_block,
 )
 from gluonts.transform import Transformation
-from gluonts.mx.batchify import batchify
-from gluonts.model.predictor import Predictor
-from gluonts.model.forecast_generator import (
-    ForecastGenerator,
-    SampleForecastGenerator,
-)
-
-OutputTransform = Callable[[DataEntry, np.ndarray], np.ndarray]
-
-from gluonts.model.forecast_generator import predict_to_numpy
 
 
 @predict_to_numpy.register(mx.gluon.Block)
@@ -134,18 +121,24 @@ class GluonPredictor(Predictor):
         self.prediction_net(*[batch[k] for k in self.input_names])
 
     def as_symbol_block_predictor(
-        self, batch: DataBatch
+        self,
+        batch: Optional[DataBatch] = None,
+        dataset: Optional[Dataset] = None,
     ) -> "SymbolBlockPredictor":
         """
         Returns a variant of the current :class:`GluonPredictor` backed
         by a Gluon `SymbolBlock`. If the current predictor is already a
         :class:`SymbolBlockPredictor`, it just returns itself.
 
+        One of batch or datset must be set.
+
         Parameters
         ----------
         batch
             A batch of data to use for the required forward pass after the
             `hybridize()` call of the underlying network.
+        dataset
+            Dataset from which a batch is extracted if batch is not set.
 
         Returns
         -------
@@ -237,7 +230,9 @@ class SymbolBlockPredictor(GluonPredictor):
     BlockType = mx.gluon.SymbolBlock
 
     def as_symbol_block_predictor(
-        self, batch: DataBatch
+        self,
+        batch: Optional[DataBatch] = None,
+        dataset: Optional[Dataset] = None,
     ) -> "SymbolBlockPredictor":
         return self
 
@@ -323,8 +318,20 @@ class RepresentableBlockPredictor(GluonPredictor):
         )
 
     def as_symbol_block_predictor(
-        self, batch: DataBatch
+        self,
+        batch: Optional[DataBatch] = None,
+        dataset: Optional[Dataset] = None,
     ) -> SymbolBlockPredictor:
+
+        if batch is None:
+            data_loader = InferenceDataLoader(
+                dataset,
+                transform=self.input_transform,
+                batch_size=self.batch_size,
+                stack_fn=partial(batchify, ctx=self.ctx, dtype=self.dtype),
+            )
+            batch = next(iter(data_loader))
+
         with self.ctx:
             symbol_block_net = hybrid_block_to_symbol_block(
                 hb=self.prediction_net,

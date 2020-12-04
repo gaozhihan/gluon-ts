@@ -15,26 +15,23 @@
 Test that maximizing likelihood allows to correctly recover distribution parameters for all
 distributions exposed to the user.
 """
-# Standard library imports
 from typing import List, Tuple
 
-# Third-party imports
-import pytest
-from pydantic import PositiveFloat, PositiveInt
-
 import numpy as np
+
+import pytest
 import torch
 import torch.nn as nn
+from pydantic import PositiveFloat, PositiveInt
+from torch.distributions import Beta
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import SGD
-from torch.utils.data import TensorDataset, DataLoader
-from torch.distributions import Beta
+from torch.utils.data import DataLoader, TensorDataset
 
-# First-party imports
 from gluonts.model.common import NPArrayLike
 from gluonts.torch.modules.distribution_output import (
-    DistributionOutput,
     BetaOutput,
+    DistributionOutput,
 )
 
 NUM_SAMPLES = 2000
@@ -86,7 +83,6 @@ def maximum_likelihood_estimate_sgd(
 
             num_batches += 1
             cumulative_loss += loss.item()
-        print("Epoch %s, loss: %s" % (e, cumulative_loss / num_batches))
 
     if len(distr_args[0].shape) == 1:
         return [
@@ -128,12 +124,6 @@ def test_beta_likelihood(concentration1: float, concentration0: float) -> None:
         num_epochs=PositiveInt(10),
     )
 
-    print(
-        "concentration1:",
-        concentration1_hat,
-        "concentration0:",
-        concentration0_hat,
-    )
     assert (
         np.abs(concentration1_hat - concentration1) < TOL * concentration1
     ), f"concentration1 did not match: concentration1 = {concentration1}, concentration1_hat = {concentration1_hat}"

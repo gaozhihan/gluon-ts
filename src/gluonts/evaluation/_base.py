@@ -11,7 +11,6 @@
 # express or implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-# Standard library imports
 import logging
 import multiprocessing
 import sys
@@ -28,15 +27,12 @@ from typing import (
     Union,
 )
 
-# Third-party imports
 import numpy as np
 import pandas as pd
 
 from gluonts.gluonts_tqdm import tqdm
-from gluonts.time_feature import get_seasonality
-
-# First-party imports
 from gluonts.model.forecast import Forecast, Quantile
+from gluonts.time_feature import get_seasonality
 
 
 class Evaluator:
@@ -77,9 +73,8 @@ class Evaluator:
         E.g. {"RMSE": [rmse, "mean", "median"]}
     num_workers
         The number of multiprocessing workers that will be used to process
-        the data in parallel.
-        Default is multiprocessing.cpu_count().
-        Setting it to 0 means no multiprocessing.
+        the data in parallel. Default is multiprocessing.cpu_count().
+        Setting it to 0 or None means no multiprocessing.
     chunk_size
         Controls the approximate chunk size each workers handles at a time.
         Default is 32.
@@ -95,21 +90,16 @@ class Evaluator:
         alpha: float = 0.05,
         calculate_owa: bool = False,
         custom_eval_fn: Optional[Dict] = None,
-        num_workers: Optional[int] = None,
-        chunk_size: Optional[int] = None,
+        num_workers: Optional[int] = multiprocessing.cpu_count(),
+        chunk_size: int = 32,
     ) -> None:
         self.quantiles = tuple(map(Quantile.parse, quantiles))
         self.seasonality = seasonality
         self.alpha = alpha
         self.calculate_owa = calculate_owa
         self.custom_eval_fn = custom_eval_fn
-
-        self.num_workers = (
-            num_workers
-            if num_workers is not None
-            else multiprocessing.cpu_count()
-        )
-        self.chunk_size = chunk_size if chunk_size is not None else 32
+        self.num_workers = num_workers
+        self.chunk_size = chunk_size
 
     def __call__(
         self,
@@ -147,7 +137,7 @@ class Evaluator:
             total=num_series,
             desc="Running evaluation",
         ) as it, np.errstate(invalid="ignore"):
-            if self.num_workers > 0 and not sys.platform == "win32":
+            if self.num_workers and not sys.platform == "win32":
                 mp_pool = multiprocessing.Pool(
                     initializer=_worker_init(self), processes=self.num_workers
                 )

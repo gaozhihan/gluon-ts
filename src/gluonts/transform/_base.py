@@ -11,11 +11,9 @@
 # express or implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-# Standard library imports
 import abc
 from typing import Callable, Iterable, Iterator, List
 
-# First-party imports
 from gluonts.core.component import validated
 from gluonts.dataset.common import DataEntry
 from gluonts.runtime_params import GLUONTS_MAX_IDLE_TRANSFORMS
@@ -35,7 +33,7 @@ class Transformation(metaclass=abc.ABCMeta):
         pass
 
     def chain(self, other: "Transformation") -> "Chain":
-        return Chain(self, other)
+        return Chain([self, other])
 
     def __add__(self, other: "Transformation") -> "Chain":
         return self.chain(other)

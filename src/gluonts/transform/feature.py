@@ -87,7 +87,7 @@ class MeanValueImputation(MissingValueImputation):
     """
 
     def __call__(self, values: np.ndarray) -> np.ndarray:
-        if len(values) == 1:
+        if len(values) == 1 or np.isnan(values).all():
             return DummyValueImputation()(values)
         nan_indices = np.where(np.isnan(values))
         values[nan_indices] = np.nanmean(values)
@@ -101,7 +101,7 @@ class LastValueImputation(MissingValueImputation):
     """
 
     def __call__(self, values: np.ndarray) -> np.ndarray:
-        if len(values) == 1:
+        if len(values) == 1 or np.isnan(values).all():
             return DummyValueImputation()(values)
         values = np.expand_dims(values, axis=0)
 
@@ -127,7 +127,7 @@ class CausalMeanValueImputation(MissingValueImputation):
     """
 
     def __call__(self, values: np.ndarray) -> np.ndarray:
-        if len(values) == 1:
+        if len(values) == 1 or np.isnan(values).all():
             return DummyValueImputation()(values)
         mask = np.isnan(values)
 
@@ -165,7 +165,7 @@ class RollingMeanValueImputation(MissingValueImputation):
         self.window_size = 1 if window_size < 1 else window_size
 
     def __call__(self, values: np.ndarray) -> np.ndarray:
-        if len(values) == 1:
+        if len(values) == 1 or np.isnan(values).all():
             return DummyValueImputation()(values)
         mask = np.isnan(values)
 
@@ -233,7 +233,9 @@ class AddObservedValuesIndicator(SimpleTransformation):
         nan_entries = np.isnan(value)
 
         if self.imputation_method is not None:
-            data[self.target_field] = self.imputation_method(value)
+            if nan_entries.any():
+                value = value.copy()
+                data[self.target_field] = self.imputation_method(value)
 
         data[self.output_field] = np.invert(
             nan_entries, out=nan_entries
