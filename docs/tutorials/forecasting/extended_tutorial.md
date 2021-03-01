@@ -1,32 +1,5 @@
 # Extended Forecasting Tutorial 
 
-In the extended forecasting tutorial we cover the following topics.
-
----
-> ## Table of contents
-> 1. ### <span style="color:orange">Datasets</span>
-    1.1 Available datasets on GluonTS  
-    1.2 Create artificial datasets with GluonTS  
-    1.3 Use your time series and features
-> 2. ### <span style="color:orange">Transformation</span>
-    2.1 Define a transformation  
-    2.2 Transform a dataset 
-> 3. ### <span style="color:orange">Training an existing model</span>
-    3.1 Configuring an estimator  
-    3.2 Getting a predictor  
-    3.3 Saving/Loading an existing model  
-> 4. ### <span style="color:orange">Evaluation</span>
-    4.1 Getting the forecasts  
-    4.2 Compute metrics  
-> 5. ### <span style="color:orange">Create your own model</span>
-    5.1 Point forecasts with a simple feedforward network  
-    5.2 Probabilistic forecasting  
-    5.3 Add features and scaling   
-    5.4 From feedforward to RNN
-    
----
-
-
 ```python
 %matplotlib inline
 import mxnet as mx
@@ -46,7 +19,7 @@ mx.random.seed(0)
 np.random.seed(0)
 ```
 
-# 1. Datasets
+## Datasets
 
 The first requirement to use GluonTS is to have an appropriate dataset. GluonTS offers three different options to practitioners that want to experiment with the various modules: 
 
@@ -58,7 +31,7 @@ In general, a dataset should satisfy some minimum format requirements to be comp
 
 The datasets provided by GluonTS come in the appropriate format and they can be used without any post processing. However, a custom dataset needs to be converted. Fortunately this is an easy task.
 
-## 1.1 Available datasets on GluonTS
+### Available datasets in GluonTS
 
 GluonTS comes with a number of available datasets. 
 
@@ -80,7 +53,7 @@ To download one of the built-in datasets, simply call `get_dataset` with one of 
 dataset = get_dataset("m4_hourly", regenerate=True)
 ```
 
-### 1.1.1 What is in a dataset?
+### What is in a dataset?
 
 In general, the datasets provided by GluonTS are objects that consists of three main members:
 
@@ -136,7 +109,7 @@ print(f"Recommended prediction horizon: {dataset.metadata.prediction_length}")
 print(f"Frequency of the time series: {dataset.metadata.freq}")
 ```
 
-## 1.2 Create artificial datasets
+### Create artificial datasets
 
 We can easily create a complex artificial time series dataset using the `ComplexSeasonalTimeSeries` module.
 
@@ -187,14 +160,18 @@ In order to use the artificially created datasets (list of dictionaries) we need
 
 
 ```python
-train_ds = ListDataset(artificial_dataset.train, 
-                        freq=artificial_dataset.metadata.freq)
+train_ds = ListDataset(
+    artificial_dataset.train, 
+    freq=artificial_dataset.metadata.freq
+)
 ```
 
 
 ```python
-test_ds = ListDataset(artificial_dataset.test, 
-                       freq=artificial_dataset.metadata.freq)
+test_ds = ListDataset(
+    artificial_dataset.test, 
+    freq=artificial_dataset.metadata.freq
+)
 ```
 
 
@@ -228,7 +205,7 @@ ax[1].legend(["test series", "end of train series"], loc="upper left")
 plt.show()
 ```
 
-## 1.3 Use your time series and features
+### Use your time series and features
 
 Now, we will see how we can convert any custom dataset with any associated features to an appropriate format for GluonTS.
 
@@ -277,32 +254,42 @@ def create_dataset(num_series, num_steps, period=24, mu=1, sigma=0.3):
     noise = np.random.normal(mu, sigma, size=(num_series, num_steps))
     
     # pattern - sinusoid with different phase
-    sin_minumPi_Pi = np.sin(np.tile(np.linspace(-np.pi, np.pi, period), int(num_steps / period)))
+    sin_minusPi_Pi = np.sin(np.tile(np.linspace(-np.pi, np.pi, period), int(num_steps / period)))
     sin_Zero_2Pi = np.sin(np.tile(np.linspace(0, 2 * np.pi, 24), int(num_steps / period)))
     
-    pattern = np.concatenate((np.tile(sin_minumPi_Pi.reshape(1, -1), 
-                                      (int(np.ceil(num_series / 2)),1)), 
-                              np.tile(sin_Zero_2Pi.reshape(1, -1), 
-                                      (int(np.floor(num_series / 2)), 1))
-                             ),
-                             axis=0
-                            )
+    pattern = np.concatenate(
+        (
+            np.tile(
+                sin_minusPi_Pi.reshape(1, -1), 
+                (int(np.ceil(num_series / 2)),1)
+            ), 
+            np.tile(
+                sin_Zero_2Pi.reshape(1, -1), 
+                (int(np.floor(num_series / 2)), 1)
+            )
+        ),
+        axis=0
+    )
     
     target = noise + pattern
     
     # create time features: use target one period earlier, append with zeros
-    feat_dynamic_real = np.concatenate((np.zeros((num_series, period)), 
-                                        target[:, :-period]
-                                       ), 
-                                       axis=1
-                                      )
+    feat_dynamic_real = np.concatenate(
+        (
+            np.zeros((num_series, period)), 
+            target[:, :-period]
+        ), 
+        axis=1
+    )
     
     # create categorical static feats: use the sinusoid type as a categorical feature
-    feat_static_cat = np.concatenate((np.zeros(int(np.ceil(num_series / 2))), 
-                                      np.ones(int(np.floor(num_series / 2)))
-                                     ),
-                                     axis=0
-                                    )
+    feat_static_cat = np.concatenate(
+        (
+            np.zeros(int(np.ceil(num_series / 2))), 
+            np.ones(int(np.floor(num_series / 2)))
+        ),
+        axis=0
+    )
     
     return target, feat_dynamic_real, feat_static_cat
     
@@ -311,21 +298,25 @@ def create_dataset(num_series, num_steps, period=24, mu=1, sigma=0.3):
 
 ```python
 # define the parameters of the dataset
-custom_ds_metadata = {'num_series': 100,
-                      'num_steps': 24 * 7,
-                      'prediction_length': 24,
-                      'freq': '1H',
-                      'start': [pd.Timestamp("01-01-2019", freq='1H') 
-                                for _ in range(100)]
-                     }
+custom_ds_metadata = {
+    'num_series': 100,
+    'num_steps': 24 * 7,
+    'prediction_length': 24,
+    'freq': '1H',
+    'start': [
+        pd.Timestamp("01-01-2019", freq='1H') 
+        for _ in range(100)
+    ]
+}
 ```
 
 
 ```python
-data_out = create_dataset(custom_ds_metadata['num_series'], 
-                          custom_ds_metadata['num_steps'],                                                      
-                          custom_ds_metadata['prediction_length']
-                         )
+data_out = create_dataset(
+    custom_ds_metadata['num_series'], 
+    custom_ds_metadata['num_steps'],                                                      
+    custom_ds_metadata['prediction_length']
+)
 
 target, feat_dynamic_real, feat_static_cat = data_out
 ```
@@ -334,28 +325,43 @@ We can easily create the train and test datasets by simply filling in the correc
 
 
 ```python
-train_ds = ListDataset([{FieldName.TARGET: target, 
-                         FieldName.START: start,
-                         FieldName.FEAT_DYNAMIC_REAL: [fdr],
-                         FieldName.FEAT_STATIC_CAT: [fsc]} 
-                        for (target, start, fdr, fsc) in zip(target[:, :-custom_ds_metadata['prediction_length']], 
-                                                             custom_ds_metadata['start'], 
-                                                             feat_dynamic_real[:, :-custom_ds_metadata['prediction_length']], 
-                                                             feat_static_cat)],
-                      freq=custom_ds_metadata['freq'])
+train_ds = ListDataset(
+    [
+        {
+            FieldName.TARGET: target,
+            FieldName.START: start,
+            FieldName.FEAT_DYNAMIC_REAL: [fdr],
+            FieldName.FEAT_STATIC_CAT: [fsc]
+        }
+        for (target, start, fdr, fsc) in zip(
+            target[:, :-custom_ds_metadata['prediction_length']],
+            custom_ds_metadata['start'],
+            feat_dynamic_real[:, :-custom_ds_metadata['prediction_length']],
+            feat_static_cat
+        )
+    ],
+    freq=custom_ds_metadata['freq']
+)
 ```
 
 
 ```python
-test_ds = ListDataset([{FieldName.TARGET: target, 
-                        FieldName.START: start,
-                        FieldName.FEAT_DYNAMIC_REAL: [fdr],
-                        FieldName.FEAT_STATIC_CAT: [fsc]} 
-                       for (target, start, fdr, fsc) in zip(target, 
-                                                            custom_ds_metadata['start'], 
-                                                            feat_dynamic_real, 
-                                                            feat_static_cat)],
-                     freq=custom_ds_metadata['freq'])
+test_ds = ListDataset(
+    [
+        {
+            FieldName.TARGET: target, 
+            FieldName.START: start,
+            FieldName.FEAT_DYNAMIC_REAL: [fdr],
+            FieldName.FEAT_STATIC_CAT: [fsc]
+        } 
+        for (target, start, fdr, fsc) in zip(
+            target, 
+            custom_ds_metadata['start'], 
+            feat_dynamic_real, 
+            feat_static_cat)
+    ],
+    freq=custom_ds_metadata['freq']
+)
 ```
 
 Now, we can examine each entry of the train and test datasets. We should expect that they have the following fields: `target`, `start`, `feat_dynamic_real` and `feat_static_cat`.
@@ -393,14 +399,9 @@ plt.show()
 
 <span style="color:red">*For the rest of the tutorial we will use the custom dataset*</span>
 
+## Transformations
 
-```python
-
-```
-
-# 2. Transformation
-
-## 2.1 Define a transformation
+### Define a transformation
 
 The primary use case for a `Transformation` is for feature processing, e.g., adding a holiday feature and for defining the way the dataset will be split into appropriate windows during training and inference. 
 
@@ -409,7 +410,7 @@ In general, it gets an iterable collection of entries of a dataset and transform
 - `AddObservedValuesIndicator`: Creates the `observed_values` field in the dataset, i.e., adds a feature that equals to 1 if the value is observed and 0 if the value is missing 
 - `AddAgeFeature`: Creates the `feat_dynamic_age` field in the dataset, i.e., adds a feature that its value is small for distant past timestamps and it monotonically increases the more we approach the current timestamp   
 
-The `Transformation` may not define an additional field in the dataset. However, it **always** needs to define how the datasets are going to be split in example windows during training and testing. This is done with the `InstanceSplitter` that is configured as follows (skipping the obvious fields):
+One more transformation that can be used is the `InstanceSplitter`, which is used to define how the datasets are going to be split in example windows during training, validation, or at prediction time. The `InstanceSplitter` is configured as follows (skipping the obvious fields):
 
 - `is_pad_field`: indicator if the time series is padded (if the length is not enough)
 - `train_sampler`: defines how the training windows are cut/sampled
@@ -447,7 +448,10 @@ def create_transformation(freq, context_length, prediction_length):
                 is_pad_field=FieldName.IS_PAD,
                 start_field=FieldName.START,
                 forecast_start_field=FieldName.FORECAST_START,
-                train_sampler=ExpectedNumInstanceSampler(num_instances=1),
+                instance_sampler=ExpectedNumInstanceSampler(
+                    num_instances=1,
+                    min_future=prediction_length,
+                ),
                 past_length=context_length,
                 future_length=prediction_length,
                 time_series_fields=[
@@ -460,15 +464,17 @@ def create_transformation(freq, context_length, prediction_length):
     )
 ```
 
-## 2.2 Transform a dataset
+### Transform a dataset
 
 Now, we can create a transformation object by applying the above transformation to the custom dataset we have created.
 
 
 ```python
-transformation = create_transformation(custom_ds_metadata['freq'], 
-                                       2 * custom_ds_metadata['prediction_length'], # can be any appropriate value
-                                       custom_ds_metadata['prediction_length'])
+transformation = create_transformation(
+    custom_ds_metadata['freq'], 
+    2 * custom_ds_metadata['prediction_length'], # can be any appropriate value
+    custom_ds_metadata['prediction_length']
+)
 ```
 
 
@@ -481,7 +487,7 @@ train_tf = transformation(iter(train_ds), is_train=True)
 type(train_tf)
 ```
 
-As expected, the output is another iterable object. We can easily examine what is contained in an entry of the transformed dataset. When `is_train=True` in the transformation, the `InstanceSplitter` iterates over the transformed dataset and cuts windows by selecting randomly a time series and a starting point on that time series (this "randomness" is defined by the `train_sampler`). 
+As expected, the output is another iterable object. We can easily examine what is contained in an entry of the transformed dataset. The `InstanceSplitter` iterates over the transformed dataset and cuts windows by selecting randomly a time series and a starting point on that time series (this "randomness" is defined by the `instance_sampler`). 
 
 
 
@@ -551,11 +557,11 @@ All the things we did manually here are done by an internal block called `DataLo
 
 ```
 
-# 3. Training an existing model
+## Training an existing model
 
 GluonTS comes with a number of pre-built models. All the user needs to do is configure some hyperparameters. The existing models focus on (but are not limited to) probabilistic forecasting. Probabilistic forecasts are predictions in the form of a probability distribution, rather than simply a single point estimate. Having estimated the future distribution of each time step in the forecasting horizon, we can draw a sample from the distribution at each time step and thus create a "sample path" that can be seen as a possible realization of the future. In practice we draw multiple samples and create multiple sample paths which can be used for visualization, evaluation of the model, to derive statistics, etc.
 
-## 3.1 Configuring an estimator
+### Configuring an estimator
 
 We will begin with GulonTS's pre-built feedforward neural network estimator, a simple but powerful forecasting model. We will use this model to demonstrate the process of training a model, producing forecasts, and evaluating the results.
 
@@ -578,16 +584,17 @@ estimator = SimpleFeedForwardEstimator(
     prediction_length=custom_ds_metadata['prediction_length'],
     context_length=2*custom_ds_metadata['prediction_length'],
     freq=custom_ds_metadata['freq'],
-    trainer=Trainer(ctx="cpu", 
-                    epochs=5, 
-                    learning_rate=1e-3, 
-                    hybridize=False, 
-                    num_batches_per_epoch=100
-                   )
+    trainer=Trainer(
+        ctx="cpu", 
+        epochs=5, 
+        learning_rate=1e-3, 
+        hybridize=False, 
+        num_batches_per_epoch=100
+    )
 )
 ```
 
-## 3.2 Getting a predictor
+### Getting a predictor
 
 After specifying our estimator with all the necessary hyperparameters we can train it using our training dataset `dataset.train` by invoking the `train` method of the estimator. The training algorithm returns a fitted model (or a `Predictor` in GluonTS parlance) that can be used to construct forecasts.
 
@@ -598,7 +605,7 @@ We should emphasize here that a single model, as the one defined above, is train
 predictor = estimator.train(train_ds)
 ```
 
-## 3.3 Saving/Loading an existing model
+### Saving/Loading an existing model
 
 A fitted model, i.e., a `Predictor`, can be saved and loaded back easily:
 
@@ -616,9 +623,9 @@ from gluonts.model.predictor import Predictor
 predictor_deserialized = Predictor.deserialize(Path("/tmp/"))
 ```
 
-# 4. Evaluation
+## Evaluation
 
-## 4.1 Getting the forecasts
+### Getting the forecasts
 
 With a predictor in hand, we can now predict the last window of the `dataset.test` and evaluate our model's performance.
 
@@ -630,7 +637,7 @@ GluonTS comes with the `make_evaluation_predictions` function that automates the
 
 
 ```python
-from gluonts.evaluation.backtest import make_evaluation_predictions
+from gluonts.evaluation import make_evaluation_predictions
 ```
 
 
@@ -722,7 +729,7 @@ def plot_prob_forecasts(ts_entry, forecast_entry):
 plot_prob_forecasts(ts_entry, forecast_entry)
 ```
 
-## 4.2 Compute metrics
+### Compute metrics
 
 We can also evaluate the quality of our forecasts numerically. In GluonTS, the `Evaluator` class can compute aggregate performance metrics, as well as metrics per time series (which can be useful for analyzing performance across heterogeneous time series).
 
@@ -763,7 +770,7 @@ plt.show()
 
 ```
 
-# 5. Create your own model
+## Create your own model
 
 For creating our own forecast model we need to:
 
@@ -776,11 +783,16 @@ The training and prediction networks can be arbitrarily complex but they should 
 - The training network's `hybrid_forward` should return a **loss** based on the prediction and the true values
 - The prediction network's `hybrid_forward` should return the predictions 
 
-The estimator should also follow some rules:
+The estimator should also include the following methods:
 
-- It should include a `create_transformation` method that defines all the possible feature transformations and how the data is split during training
-- It should include a `create_training_network` method that returns the training network configured with any necessary hyperparameters
-- It should include a `create_predictor` method that creates the prediction network, and returns a `Predictor` object 
+- `create_transformation`, defining all the data pre-processing transformations (like adding features)
+- `create_training_data_loader`, constructing the data loader that gives batches to be used in training, out of a given dataset
+- `create_training_network`, returning the training network configured with any necessary hyperparameters
+- `create_predictor`, creting the prediction network, and returning a `Predictor` object 
+
+If a validation dataset is to be accepted, for some validation metric to be computed, then also the following should be defined:
+
+- `create_validation_data_loader`
 
 A `Predictor` defines the `predictor.predict` method of a given predictor. This method takes the test dataset, it passes it through the prediction network to take the predictions, and yields the predictions. You can think of the `Predictor` object as a wrapper of the prediction network that defines its `predict` method. 
 
@@ -788,7 +800,7 @@ In this section, we will start simple by creating a feedforward network that is 
 
 We need to emphasize that the way the following models are implemented and all the design choices that are made are neither binding nor necessarily optimal. Their sole purpose is to provide guidelines and hints on how to build a model. 
 
-## 5.1 Point forecasts with a simple feedforward network
+### Point forecasts with a simple feedforward network
 
 We can create a simple training network that defines a neural network that takes as input a window of length `context_length` and predicts the subsequent window of dimension `prediction_length` (thus, the output dimension of the network is `prediction_length`). The `hybrid_forward` method of the training network returns the mean of the L1 loss. 
 
@@ -828,14 +840,24 @@ The estimator class is configured by a few hyperparameters and implements the re
 
 
 ```python
-from gluonts.mx.model.estimator import GluonEstimator
-from gluonts.model.predictor import Predictor
-from gluonts.mx.model.predictor import RepresentableBlockPredictor
-from gluonts.core.component import validated
-from gluonts.mx.trainer import Trainer
-from gluonts.mx.util import copy_parameters
-from gluonts.transform import ExpectedNumInstanceSampler, Transformation, InstanceSplitter
+from functools import partial
 from mxnet.gluon import HybridBlock
+from gluonts.core.component import validated
+from gluonts.dataset.loader import TrainDataLoader
+from gluonts.model.predictor import Predictor
+from gluonts.mx.batchify import as_in_context, batchify
+from gluonts.mx.model.estimator import GluonEstimator
+from gluonts.mx.model.predictor import RepresentableBlockPredictor
+from gluonts.mx.trainer import Trainer
+from gluonts.mx.util import copy_parameters, get_hybrid_forward_input_names
+from gluonts.transform import (
+    ExpectedNumInstanceSampler,
+    Transformation,
+    InstanceSplitter,
+    TestSplitSampler,
+    SelectFields,
+    Chain
+)
 ```
 
 
@@ -848,26 +870,40 @@ class MyEstimator(GluonEstimator):
         context_length: int,
         freq: str,
         num_cells: int,
+        batch_size: int = 32,
         trainer: Trainer = Trainer()
     ) -> None:
-        super().__init__(trainer=trainer)
+        super().__init__(trainer=trainer, batch_size=batch_size)
         self.prediction_length = prediction_length
         self.context_length = context_length
         self.freq = freq
         self.num_cells = num_cells
             
     def create_transformation(self):
-        # Feature transformation that the model uses for input
-        # Here we use a transformation that defines only how the train and test windows are cut
-        return InstanceSplitter(
-                    target_field=FieldName.TARGET,
-                    is_pad_field=FieldName.IS_PAD,
-                    start_field=FieldName.START,
-                    forecast_start_field=FieldName.FORECAST_START,
-                    train_sampler=ExpectedNumInstanceSampler(num_instances=1),
-                    past_length=self.context_length,
-                    future_length=self.prediction_length,
-                )
+        return Chain([])
+    
+    def create_training_data_loader(self, dataset, **kwargs):
+        instance_splitter = InstanceSplitter(
+            target_field=FieldName.TARGET,
+            is_pad_field=FieldName.IS_PAD,
+            start_field=FieldName.START,
+            forecast_start_field=FieldName.FORECAST_START,
+            instance_sampler=ExpectedNumInstanceSampler(
+                num_instances=1,
+                min_future=self.prediction_length
+            ),
+            past_length=self.context_length,
+            future_length=self.prediction_length,
+        )
+        input_names = get_hybrid_forward_input_names(MyTrainNetwork)
+        return TrainDataLoader(
+            dataset=dataset,
+            transform=instance_splitter + SelectFields(input_names),
+            batch_size=self.batch_size,
+            stack_fn=partial(batchify, ctx=self.trainer.ctx, dtype=self.dtype),
+            decode_fn=partial(as_in_context, ctx=self.trainer.ctx),
+            **kwargs,
+        )
     
     def create_training_network(self) -> MyTrainNetwork:
         return MyTrainNetwork(
@@ -878,6 +914,16 @@ class MyEstimator(GluonEstimator):
     def create_predictor(
         self, transformation: Transformation, trained_network: HybridBlock
     ) -> Predictor:
+        prediction_splitter = InstanceSplitter(
+            target_field=FieldName.TARGET,
+            is_pad_field=FieldName.IS_PAD,
+            start_field=FieldName.START,
+            forecast_start_field=FieldName.FORECAST_START,
+            instance_sampler=TestSplitSampler(),
+            past_length=self.context_length,
+            future_length=self.prediction_length,
+        )
+
         prediction_network = MyPredNetwork(
             prediction_length=self.prediction_length,
             num_cells=self.num_cells
@@ -886,7 +932,7 @@ class MyEstimator(GluonEstimator):
         copy_parameters(trained_network, prediction_network)
 
         return RepresentableBlockPredictor(
-            input_transform=transformation,
+            input_transform=transformation + prediction_splitter,
             prediction_net=prediction_network,
             batch_size=self.trainer.batch_size,
             freq=self.freq,
@@ -904,12 +950,13 @@ estimator = MyEstimator(
     context_length=2*custom_ds_metadata['prediction_length'],
     freq=custom_ds_metadata['freq'],
     num_cells=40,
-    trainer=Trainer(ctx="cpu", 
-                    epochs=5, 
-                    learning_rate=1e-3, 
-                    hybridize=False, 
-                    num_batches_per_epoch=100
-                   )
+    trainer=Trainer(
+        ctx="cpu",
+        epochs=5, 
+        learning_rate=1e-3, 
+        hybridize=False, 
+        num_batches_per_epoch=100
+    )
 )
 ```
 
@@ -942,9 +989,9 @@ plot_prob_forecasts(tss[0], forecasts[0])
 
 Observe that we cannot actually see any prediction intervals in the predictions. This is expected since the model that we defined does not do probabilistic forecasting but it just gives point estimates. By requiring 100 sample paths (defined in `make_evaluation_predictions`) in such a network, we get 100 times the same output.
 
-## 5.2 Probabilistic forecasting
+### Probabilistic forecasting
 
-### 5.2.1 How does a model learn a distribution?
+#### How does a model learn a distribution?
 
 Probabilistic forecasting requires that we learn the distribution of the future values of the time series and not the values themselves as in point forecasting. To achieve this, we need to specify the type of distribution that the future values follow. GluonTS comes with a number of different distributions that cover many use cases, such as Gaussian, Student-t and Uniform just to name a few.  
 
@@ -957,7 +1004,7 @@ However, it is not straightforward how to connect a model with such a distributi
 
 By including this projection layer, our model effectively learns the parameters of the (chosen) distribution of each time step. Such a model is usually optimized by choosing as a loss function the negative log-likelihood of the chosen distribution. After we optimize our model and learn the parameters we can sample or derive any other useful statistics from the learned distributions.
 
-### 5.2.2 Feedforward network for probabilistic forecasting
+#### Feedforward network for probabilistic forecasting
 
 Let's see what changes we need to make to the previous model to make it probabilistic: 
 
@@ -969,19 +1016,19 @@ Note that in all the tensors that we handle there is an initial dimension that r
 
 
 ```python
-from gluonts.distribution.distribution_output import DistributionOutput
-from gluonts.distribution.gaussian import GaussianOutput
+from gluonts.mx.distribution import DistributionOutput, GaussianOutput
 ```
 
 
 ```python
 class MyProbNetwork(gluon.HybridBlock):
-    def __init__(self, 
-                 prediction_length, 
-                 distr_output, 
-                 num_cells, 
-                 num_sample_paths=100, 
-                 **kwargs
+    def __init__(
+        self, 
+        prediction_length, 
+        distr_output, 
+        num_cells, 
+        num_sample_paths=100, 
+        **kwargs
     ) -> None:
         super().__init__(**kwargs)
         self.prediction_length = prediction_length
@@ -1052,16 +1099,17 @@ The changes we need to do at the estimator are minor and they mainly reflect the
 class MyProbEstimator(GluonEstimator):
     @validated()
     def __init__(
-            self,
-            prediction_length: int,
-            context_length: int,
-            freq: str,
-            distr_output: DistributionOutput,
-            num_cells: int,
-            num_sample_paths: int = 100,
-            trainer: Trainer = Trainer()
+        self,
+        prediction_length: int,
+        context_length: int,
+        freq: str,
+        distr_output: DistributionOutput,
+        num_cells: int,
+        num_sample_paths: int = 100,
+        batch_size: int = 32,
+        trainer: Trainer = Trainer()
     ) -> None:
-        super().__init__(trainer=trainer)
+        super().__init__(trainer=trainer, batch_size=batch_size)
         self.prediction_length = prediction_length
         self.context_length = context_length
         self.freq = freq
@@ -1070,14 +1118,29 @@ class MyProbEstimator(GluonEstimator):
         self.num_sample_paths = num_sample_paths
 
     def create_transformation(self):
-        return InstanceSplitter(
+        return Chain([])
+    
+    def create_training_data_loader(self, dataset, **kwargs):
+        instance_splitter = InstanceSplitter(
             target_field=FieldName.TARGET,
             is_pad_field=FieldName.IS_PAD,
             start_field=FieldName.START,
             forecast_start_field=FieldName.FORECAST_START,
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1),
+            instance_sampler=ExpectedNumInstanceSampler(
+                num_instances=1,
+                min_future=self.prediction_length
+            ),
             past_length=self.context_length,
             future_length=self.prediction_length,
+        )
+        input_names = get_hybrid_forward_input_names(MyProbTrainNetwork)
+        return TrainDataLoader(
+            dataset=dataset,
+            transform=instance_splitter + SelectFields(input_names),
+            batch_size=self.batch_size,
+            stack_fn=partial(batchify, ctx=self.trainer.ctx, dtype=self.dtype),
+            decode_fn=partial(as_in_context, ctx=self.trainer.ctx),
+            **kwargs,
         )
 
     def create_training_network(self) -> MyProbTrainNetwork:
@@ -1089,8 +1152,18 @@ class MyProbEstimator(GluonEstimator):
         )
 
     def create_predictor(
-            self, transformation: Transformation, trained_network: HybridBlock
+        self, transformation: Transformation, trained_network: HybridBlock
     ) -> Predictor:
+        prediction_splitter = InstanceSplitter(
+            target_field=FieldName.TARGET,
+            is_pad_field=FieldName.IS_PAD,
+            start_field=FieldName.START,
+            forecast_start_field=FieldName.FORECAST_START,
+            instance_sampler=TestSplitSampler(),
+            past_length=self.context_length,
+            future_length=self.prediction_length,
+        )
+
         prediction_network = MyProbPredNetwork(
             prediction_length=self.prediction_length,
             distr_output=self.distr_output,
@@ -1101,7 +1174,7 @@ class MyProbEstimator(GluonEstimator):
         copy_parameters(trained_network, prediction_network)
 
         return RepresentableBlockPredictor(
-            input_transform=transformation,
+            input_transform=transformation + prediction_splitter,
             prediction_net=prediction_network,
             batch_size=self.trainer.batch_size,
             freq=self.freq,
@@ -1118,12 +1191,13 @@ estimator = MyProbEstimator(
     freq=custom_ds_metadata['freq'],
     distr_output=GaussianOutput(),
     num_cells=40,
-    trainer=Trainer(ctx="cpu", 
-                    epochs=5, 
-                    learning_rate=1e-3, 
-                    hybridize=False, 
-                    num_batches_per_epoch=100
-                   )
+    trainer=Trainer(
+        ctx="cpu", 
+        epochs=5, 
+        learning_rate=1e-3, 
+        hybridize=False, 
+        num_batches_per_epoch=100
+    )
 )
 ```
 
@@ -1152,7 +1226,7 @@ tss = list(ts_it)
 plot_prob_forecasts(tss[0], forecasts[0])
 ```
 
-## 5.3 Add features and scaling
+### Add features and scaling
 
 In the previous networks we used only the target and did not leverage any of the features of the dataset. Here we expand the probabilistic network by including the `feat_dynamic_real` field of the dataset that could enhance the forecasting power of our model. We achieve this by concatenating the target and the features to an enhanced vector that forms the new network input. 
 
@@ -1162,20 +1236,21 @@ An important issue that a practitioner needs to deal with often is the different
 
 
 ```python
-from gluonts.block.scaler import MeanScaler, NOPScaler
+from gluonts.mx.block.scaler import MeanScaler, NOPScaler
 ```
 
 
 ```python
 class MyProbNetwork(gluon.HybridBlock):
-    def __init__(self, 
-                 prediction_length, 
-                 context_length, 
-                 distr_output, 
-                 num_cells, 
-                 num_sample_paths=100, 
-                 scaling=True, 
-                 **kwargs
+    def __init__(
+        self, 
+        prediction_length, 
+        context_length, 
+        distr_output, 
+        num_cells, 
+        num_sample_paths=100, 
+        scaling=True, 
+        **kwargs
     ) -> None:
         super().__init__(**kwargs)
         self.prediction_length = prediction_length
@@ -1290,17 +1365,18 @@ class MyProbPredNetwork(MyProbTrainNetwork):
 class MyProbEstimator(GluonEstimator):
     @validated()
     def __init__(
-            self,
-            prediction_length: int,
-            context_length: int,
-            freq: str,
-            distr_output: DistributionOutput,
-            num_cells: int,
-            num_sample_paths: int = 100,
-            scaling: bool = True,
-            trainer: Trainer = Trainer()
+        self,
+        prediction_length: int,
+        context_length: int,
+        freq: str,
+        distr_output: DistributionOutput,
+        num_cells: int,
+        num_sample_paths: int = 100,
+        scaling: bool = True,
+        batch_size: int = 32,
+        trainer: Trainer = Trainer()
     ) -> None:
-        super().__init__(trainer=trainer)
+        super().__init__(trainer=trainer, batch_size=batch_size)
         self.prediction_length = prediction_length
         self.context_length = context_length
         self.freq = freq
@@ -1311,27 +1387,36 @@ class MyProbEstimator(GluonEstimator):
 
     def create_transformation(self):
         # Feature transformation that the model uses for input.
-        return Chain(
-            [
-                AddObservedValuesIndicator(
-                    target_field=FieldName.TARGET,
-                    output_field=FieldName.OBSERVED_VALUES,
-                ),
-                InstanceSplitter(
-                    target_field=FieldName.TARGET,
-                    is_pad_field=FieldName.IS_PAD,
-                    start_field=FieldName.START,
-                    forecast_start_field=FieldName.FORECAST_START,
-                    train_sampler=ExpectedNumInstanceSampler(num_instances=1),
-                    past_length=self.context_length,
-                    future_length=self.prediction_length,
-                    time_series_fields=[
-                        FieldName.FEAT_DYNAMIC_REAL,
-                        FieldName.OBSERVED_VALUES,
-                    ],
-                ),
-
-            ]
+        return AddObservedValuesIndicator(
+            target_field=FieldName.TARGET,
+            output_field=FieldName.OBSERVED_VALUES,
+        )
+    
+    def create_training_data_loader(self, dataset, **kwargs):
+        instance_splitter = InstanceSplitter(
+            target_field=FieldName.TARGET,
+            is_pad_field=FieldName.IS_PAD,
+            start_field=FieldName.START,
+            forecast_start_field=FieldName.FORECAST_START,
+            instance_sampler=ExpectedNumInstanceSampler(
+                num_instances=1,
+                min_future=self.prediction_length
+            ),
+            past_length=self.context_length,
+            future_length=self.prediction_length,
+            time_series_fields=[
+                FieldName.FEAT_DYNAMIC_REAL,
+                FieldName.OBSERVED_VALUES,
+            ],
+        )
+        input_names = get_hybrid_forward_input_names(MyProbTrainNetwork)
+        return TrainDataLoader(
+            dataset=dataset,
+            transform=instance_splitter + SelectFields(input_names),
+            batch_size=self.batch_size,
+            stack_fn=partial(batchify, ctx=self.trainer.ctx, dtype=self.dtype),
+            decode_fn=partial(as_in_context, ctx=self.trainer.ctx),
+            **kwargs,
         )
 
     def create_training_network(self) -> MyProbTrainNetwork:
@@ -1345,8 +1430,22 @@ class MyProbEstimator(GluonEstimator):
         )
 
     def create_predictor(
-            self, transformation: Transformation, trained_network: HybridBlock
+        self, transformation: Transformation, trained_network: HybridBlock
     ) -> Predictor:
+        prediction_splitter = InstanceSplitter(
+            target_field=FieldName.TARGET,
+            is_pad_field=FieldName.IS_PAD,
+            start_field=FieldName.START,
+            forecast_start_field=FieldName.FORECAST_START,
+            instance_sampler=TestSplitSampler(),
+            past_length=self.context_length,
+            future_length=self.prediction_length,
+            time_series_fields=[
+                FieldName.FEAT_DYNAMIC_REAL,
+                FieldName.OBSERVED_VALUES,
+            ],
+        )
+
         prediction_network = MyProbPredNetwork(
             prediction_length=self.prediction_length,
             context_length=self.context_length,
@@ -1359,7 +1458,7 @@ class MyProbEstimator(GluonEstimator):
         copy_parameters(trained_network, prediction_network)
 
         return RepresentableBlockPredictor(
-            input_transform=transformation,
+            input_transform=transformation + prediction_splitter,
             prediction_net=prediction_network,
             batch_size=self.trainer.batch_size,
             freq=self.freq,
@@ -1376,12 +1475,13 @@ estimator = MyProbEstimator(
     freq=custom_ds_metadata['freq'],
     distr_output=GaussianOutput(),
     num_cells=40,
-    trainer=Trainer(ctx="cpu", 
-                    epochs=5, 
-                    learning_rate=1e-3, 
-                    hybridize=False, 
-                    num_batches_per_epoch=100
-                   )
+    trainer=Trainer(
+        ctx="cpu", 
+        epochs=5, 
+        learning_rate=1e-3, 
+        hybridize=False, 
+        num_batches_per_epoch=100
+    )
 )
 ```
 
@@ -1410,15 +1510,15 @@ tss = list(ts_it)
 plot_prob_forecasts(tss[0], forecasts[0])
 ```
 
-## 5.4 From feedforward to RNN
+### From feedforward to RNN
 
 In all the previous examples we have used a feedforward neural network as the base for our forecasting model. The main idea behind it was to use as an input to the network a window of the time series (of length `context_length`) and train the network to forecast the following window (of length `prediction_length`). 
 
 In this section we will replace the feedforward network with a recurrent neural network (RNN). Due to the different nature of RNNs the structure of the networks will be a bit different. Let's see what are the major changes. 
 
-### 5.4.1 Training
+#### Training
 
-The main idea behind RNN is the same as in the feedforward networks we already constructed: as we unrolll the RNN at each time step we use as an input past values of the time series and forecast the next value. We can enhance the input by using multiple past values (for example specific lags based on seasonality patterns) or available features. However, in this example we will keep things simple and just use the last value of the time series. The output of the network at each time step is the distribution of the value of the next time step, where the state of the RNN is used as the feature vector for the parameter projection of the distribution.
+The main idea behind RNN is the same as in the feedforward networks we already constructed: as we unroll the RNN at each time step we use as an input past values of the time series and forecast the next value. We can enhance the input by using multiple past values (for example specific lags based on seasonality patterns) or available features. However, in this example we will keep things simple and just use the last value of the time series. The output of the network at each time step is the distribution of the value of the next time step, where the state of the RNN is used as the feature vector for the parameter projection of the distribution.
 
 Due to the sequential nature of the RNN, the distinction between `past_` and `future_` in the cut window of the time series is not really necessary. Therefore, we can concatenate `past_target` and `future_target ` and treat it as a concrete `target` window that we wish to forecast. This means that the input to the RNN would be (sequentially) the window `target[-(context_length + prediction_length + 1):-1]` (one time step before the window we want to predict). As a consequence, we need to have `context_length + prediction_length + 1` available values at each window that we cut. We can define this in the `InstanceSplitter`. 
 
@@ -1430,7 +1530,7 @@ Overall, during training the steps are the following:
 
 The above steps are implemented in the `unroll_encoder` method.
 
-### 5.4.2 Inference
+#### Inference
 
 During inference we know the values only of `past_target` therefore we cannot follow exactly the same steps as in training. However the main idea is very similar:
 
@@ -1444,14 +1544,14 @@ The first step is implemented in `unroll_encoder` and the last steps in the `sam
 ```python
 class MyProbRNN(gluon.HybridBlock):
     def __init__(self,
-                 prediction_length,
-                 context_length,
-                 distr_output,
-                 num_cells,
-                 num_layers,
-                 num_sample_paths=100,
-                 scaling=True,
-                 **kwargs
+        prediction_length,
+        context_length,
+        distr_output,
+        num_cells,
+        num_layers,
+        num_sample_paths=100,
+        scaling=True,
+        **kwargs
      ) -> None:
         super().__init__(**kwargs)
         self.prediction_length = prediction_length
@@ -1489,12 +1589,14 @@ class MyProbRNN(gluon.HybridBlock):
 
         return scale
 
-    def unroll_encoder(self, 
-                       F, 
-                       past_target, 
-                       past_observed_values, 
-                       future_target=None, 
-                       future_observed_values=None):
+    def unroll_encoder(
+        self, 
+        F, 
+        past_target, 
+        past_observed_values, 
+        future_target=None, 
+        future_observed_values=None
+    ):
         # overall target field
         # input target from -(context_length + prediction_length + 1) to -1
         if future_target is not None:  # during training
@@ -1544,18 +1646,17 @@ class MyProbRNN(gluon.HybridBlock):
 
 
 class MyProbTrainRNN(MyProbRNN):
-    def hybrid_forward(self,
-                       F,
-                       past_target,
-                       future_target,
-                       past_observed_values,
-                       future_observed_values):
-
-        net_output, _, scale = self.unroll_encoder(F,
-                                                   past_target,
-                                                   past_observed_values,
-                                                   future_target,
-                                                   future_observed_values)
+    def hybrid_forward(
+        self,
+        F,
+        past_target,
+        future_target,
+        past_observed_values,
+        future_observed_values
+    ):
+        net_output, _, scale = self.unroll_encoder(
+            F, past_target, past_observed_values, future_target, future_observed_values
+        )
 
         # output target from -(context_length + prediction_length) to end
         target_out = F.concat(
@@ -1629,9 +1730,9 @@ class MyProbPredRNN(MyProbTrainRNN):
 
     def hybrid_forward(self, F, past_target, past_observed_values):
         # unroll encoder over context_length
-        net_output, states, scale = self.unroll_encoder(F,
-                                                        past_target,
-                                                        past_observed_values)
+        net_output, states, scale = self.unroll_encoder(
+            F, past_target, past_observed_values
+        )
 
         samples = self.sample_decoder(F, past_target, states, scale)
 
@@ -1643,18 +1744,19 @@ class MyProbPredRNN(MyProbTrainRNN):
 class MyProbRNNEstimator(GluonEstimator):
     @validated()
     def __init__(
-            self,
-            prediction_length: int,
-            context_length: int,
-            freq: str,
-            distr_output: DistributionOutput,
-            num_cells: int,
-            num_layers: int,
-            num_sample_paths: int = 100,
-            scaling: bool = True,
-            trainer: Trainer = Trainer()
+        self,
+        prediction_length: int,
+        context_length: int,
+        freq: str,
+        distr_output: DistributionOutput,
+        num_cells: int,
+        num_layers: int,
+        num_sample_paths: int = 100,
+        scaling: bool = True,
+        batch_size: int = 32,
+        trainer: Trainer = Trainer()
     ) -> None:
-        super().__init__(trainer=trainer)
+        super().__init__(trainer=trainer, batch_size=batch_size)
         self.prediction_length = prediction_length
         self.context_length = context_length
         self.freq = freq
@@ -1666,27 +1768,36 @@ class MyProbRNNEstimator(GluonEstimator):
 
     def create_transformation(self):
         # Feature transformation that the model uses for input.
-        return Chain(
-            [
-                AddObservedValuesIndicator(
-                    target_field=FieldName.TARGET,
-                    output_field=FieldName.OBSERVED_VALUES,
-                ),
-                InstanceSplitter(
-                    target_field=FieldName.TARGET,
-                    is_pad_field=FieldName.IS_PAD,
-                    start_field=FieldName.START,
-                    forecast_start_field=FieldName.FORECAST_START,
-                    train_sampler=ExpectedNumInstanceSampler(num_instances=1),
-                    past_length=self.context_length + 1,
-                    future_length=self.prediction_length,
-                    time_series_fields=[
-                        FieldName.FEAT_DYNAMIC_REAL,
-                        FieldName.OBSERVED_VALUES,
-                    ],
-                ),
-
-            ]
+        return AddObservedValuesIndicator(
+            target_field=FieldName.TARGET,
+            output_field=FieldName.OBSERVED_VALUES,
+        )
+    
+    def create_training_data_loader(self, dataset, **kwargs):
+        instance_splitter = InstanceSplitter(
+            target_field=FieldName.TARGET,
+            is_pad_field=FieldName.IS_PAD,
+            start_field=FieldName.START,
+            forecast_start_field=FieldName.FORECAST_START,
+            instance_sampler=ExpectedNumInstanceSampler(
+                num_instances=1,
+                min_future=self.prediction_length,
+            ),
+            past_length=self.context_length + 1,
+            future_length=self.prediction_length,
+            time_series_fields=[
+                FieldName.FEAT_DYNAMIC_REAL,
+                FieldName.OBSERVED_VALUES,
+            ],
+        )
+        input_names = get_hybrid_forward_input_names(MyProbTrainRNN)
+        return TrainDataLoader(
+            dataset=dataset,
+            transform=instance_splitter + SelectFields(input_names),
+            batch_size=self.batch_size,
+            stack_fn=partial(batchify, ctx=self.trainer.ctx, dtype=self.dtype),
+            decode_fn=partial(as_in_context, ctx=self.trainer.ctx),
+            **kwargs,
         )
 
     def create_training_network(self) -> MyProbTrainRNN:
@@ -1701,8 +1812,21 @@ class MyProbRNNEstimator(GluonEstimator):
         )
 
     def create_predictor(
-            self, transformation: Transformation, trained_network: HybridBlock
+        self, transformation: Transformation, trained_network: HybridBlock
     ) -> Predictor:
+        prediction_splitter = InstanceSplitter(
+            target_field=FieldName.TARGET,
+            is_pad_field=FieldName.IS_PAD,
+            start_field=FieldName.START,
+            forecast_start_field=FieldName.FORECAST_START,
+            instance_sampler=TestSplitSampler(),
+            past_length=self.context_length + 1,
+            future_length=self.prediction_length,
+            time_series_fields=[
+                FieldName.FEAT_DYNAMIC_REAL,
+                FieldName.OBSERVED_VALUES,
+            ],
+        )
         prediction_network = MyProbPredRNN(
             prediction_length=self.prediction_length,
             context_length=self.context_length,
@@ -1716,7 +1840,7 @@ class MyProbRNNEstimator(GluonEstimator):
         copy_parameters(trained_network, prediction_network)
 
         return RepresentableBlockPredictor(
-            input_transform=transformation,
+            input_transform=transformation + prediction_splitter,
             prediction_net=prediction_network,
             batch_size=self.trainer.batch_size,
             freq=self.freq,
@@ -1728,19 +1852,20 @@ class MyProbRNNEstimator(GluonEstimator):
 
 ```python
 estimator = MyProbRNNEstimator(
-        prediction_length=24,
-        context_length=48,
-        freq="1H",
-        num_cells=40,
-        num_layers=2,
-        distr_output=GaussianOutput(),
-        trainer=Trainer(ctx="cpu",
-                        epochs=5,
-                        learning_rate=1e-3,
-                        hybridize=False,
-                        num_batches_per_epoch=100
-                       )
+    prediction_length=24,
+    context_length=48,
+    freq="1H",
+    num_cells=40,
+    num_layers=2,
+    distr_output=GaussianOutput(),
+    trainer=Trainer(
+        ctx="cpu",
+        epochs=5,
+        learning_rate=1e-3,
+        hybridize=False,
+        num_batches_per_epoch=100
     )
+)
 ```
 
 
@@ -1766,14 +1891,4 @@ tss = list(ts_it)
 
 ```python
 plot_prob_forecasts(tss[0], forecasts[0])
-```
-
-
-```python
-
-```
-
-
-```python
-
 ```

@@ -11,11 +11,13 @@
 # express or implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
+import itertools
 import logging
 import os
 import tempfile
 import time
 import uuid
+import warnings
 from typing import Any, Callable, List, Optional, Union
 
 import mxnet as mx
@@ -26,7 +28,7 @@ from mxnet.metric import ndarray
 
 from gluonts.core.component import validated
 from gluonts.core.exception import GluonTSDataError, GluonTSUserError
-from gluonts.dataset.loader import TrainDataLoader, ValidationDataLoader
+from gluonts.dataset.loader import DataLoader
 from gluonts.gluonts_tqdm import tqdm
 from gluonts.mx.context import get_mxnet_context
 from gluonts.mx.util import HybridContext
@@ -108,7 +110,7 @@ class Trainer:
         self,
         ctx: Optional[mx.Context] = None,
         epochs: int = 100,
-        batch_size: int = 32,
+        batch_size: Optional[int] = None,
         num_batches_per_epoch: int = 50,
         learning_rate: float = 1e-3,
         learning_rate_decay_factor: float = 0.5,
@@ -123,6 +125,17 @@ class Trainer:
         ] = SelectNBestMean(num_models=1),
         post_initialize_cb: Optional[Callable[[mx.gluon.Block], None]] = None,
     ) -> None:
+
+        if batch_size is not None:
+            warnings.warn(
+                "batch_size argument is deprecated",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        else:
+            batch_size = 32
+
+        assert isinstance(batch_size, int)
 
         assert (
             0 <= epochs < float("inf")
@@ -157,12 +170,7 @@ class Trainer:
         self.hybridize = hybridize
         self.avg_strategy = avg_strategy
         self.ctx = ctx if ctx is not None else get_mxnet_context()
-        self.halt = False
         self.post_initialize_cb = post_initialize_cb
-
-    def set_halt(self, signum: int, stack_frame: Any) -> None:
-        logger.info("Received signal: {}".format(signum))
-        self.halt = True
 
     def count_model_params(self, net: nn.HybridBlock) -> int:
         params = net.collect_params()
@@ -175,8 +183,8 @@ class Trainer:
     def __call__(
         self,
         net: nn.HybridBlock,
-        train_iter: TrainDataLoader,
-        validation_iter: Optional[ValidationDataLoader] = None,
+        train_iter: DataLoader,
+        validation_iter: Optional[DataLoader] = None,
     ) -> None:  # TODO: we may want to return some training information here
         """
         Train a network, given an iterable over training (and optionally validation) batches.
@@ -195,7 +203,6 @@ class Trainer:
             validation metrics.
         """
         is_validation_available = validation_iter is not None
-        self.halt = False
 
         with tempfile.TemporaryDirectory(
             prefix="gluonts-trainer-temp-"
@@ -217,8 +224,6 @@ class Trainer:
                 static_alloc=True,
                 static_shape=True,
             ):
-                batch_size = train_iter.batch_size
-
                 best_epoch_info = {
                     "params_path": "%s-%s.params" % (base_path(), "init"),
                     "epoch_no": -1,
@@ -248,7 +253,10 @@ class Trainer:
                 first_forward = True
 
                 def loop(
-                    epoch_no, batch_iter, is_training: bool = True
+                    epoch_no,
+                    batch_iter,
+                    num_batches_to_use: Optional[int] = None,
+                    is_training: bool = True,
                 ) -> mx.metric.Loss:
                     nonlocal first_forward
                     tic = time.time()
@@ -261,14 +269,15 @@ class Trainer:
                     ):
                         self.avg_strategy.load_averaged_model(net)
 
-                    with tqdm(batch_iter) as it:
+                    batch_iter = itertools.islice(
+                        batch_iter, num_batches_to_use
+                    )
+
+                    with tqdm(batch_iter, total=num_batches_to_use) as it:
                         for batch_no, batch in enumerate(it, start=1):
                             # `batch` here is expected to be a dictionary whose fields
                             # should correspond 1-to-1 with the network inputs
                             # see below how `batch.values()` is fed into the network
-
-                            if self.halt:
-                                break
 
                             if first_forward:
                                 first_forward = False
@@ -277,7 +286,15 @@ class Trainer:
                                     self.post_initialize_cb(net)
 
                             with mx.autograd.record():
-                                output = net(*batch.values())
+                                # we set the mode explicitly as by default mxnet assumes predict mode and hence
+                                # dropout layers are not used if the mode is not explicitly set to training
+                                mode = (
+                                    autograd.train_mode
+                                    if is_training
+                                    else autograd.predict_mode
+                                )
+                                with mode():
+                                    output = net(*batch.values())
 
                                 # network can returns several outputs, the first being always the loss
                                 # when having multiple outputs, the forward returns a list in the case of hybrid and a
@@ -287,6 +304,8 @@ class Trainer:
                                     loss = output[0]
                                 else:
                                     loss = output
+
+                                batch_size = loss.shape[0]
 
                             if not np.isfinite(ndarray.sum(loss).asscalar()):
                                 logger.warning(
@@ -348,16 +367,17 @@ class Trainer:
                     return epoch_loss
 
                 for epoch_no in range(self.epochs):
-                    if self.halt:
-                        logger.info(f"Epoch[{epoch_no}] Interrupting training")
-                        break
 
                     curr_lr = trainer.learning_rate
                     logger.info(
                         f"Epoch[{epoch_no}] Learning rate is {curr_lr}"
                     )
 
-                    epoch_loss = loop(epoch_no, train_iter)
+                    epoch_loss = loop(
+                        epoch_no,
+                        train_iter,
+                        num_batches_to_use=self.num_batches_per_epoch,
+                    )
                     if is_validation_available:
                         epoch_loss = loop(
                             epoch_no, validation_iter, is_training=False

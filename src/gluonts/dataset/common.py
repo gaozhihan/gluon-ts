@@ -218,7 +218,7 @@ class FileDataset(Dataset):
 
 class ListDataset(Dataset):
     """
-    Dataset backed directly by an list of dictionaries.
+    Dataset backed directly by a list of dictionaries.
 
     data_iter
         Iterable object yielding all items in the dataset.
@@ -505,6 +505,8 @@ def serialize_data_entry(data):
             field = field.astype(np.object_)
             field[nan_ix] = "NaN"
             return field.tolist()
+        if isinstance(field, (int, float)):
+            return field
         return str(field)
 
     return {k: serialize_field(v) for k, v in data.items() if v is not None}

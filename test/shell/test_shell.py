@@ -100,6 +100,7 @@ def batch_transform(monkeypatch, train_env):
     }
 
     monkeypatch.setenv("INFERENCE_CONFIG", json.dumps(inference_config))
+    monkeypatch.setenv("GLUONTS_FORWARD_FIELDS", json.dumps(["foo"]))
     return inference_config
 
 
@@ -126,7 +127,7 @@ def test_train_shell(train_env: TrainEnv, caplog, forecaster_type) -> None:
             if "local, Coverage" in line:
                 assert line.endswith("0.0")
             if "MASE" in line or "MSIS" in line:
-                assert line.endswith("0.0")
+                assert line.endswith("nan")
             if "abs_target_sum" in line:
                 assert line.endswith("270.0")
 
@@ -233,10 +234,13 @@ def test_dynamic_batch_shell(
     assert execution_parameters["MaxPayloadInMB"] == 6
 
     for entry in train_env.datasets["train"]:
+        entry["foo"] = 42
         forecast = dynamic_server.batch_invocations([entry])[0]
 
         for output_type in batch_transform["output_types"]:
             assert output_type in forecast
+
+        assert forecast["foo"] == 42
 
         act_mean = np.array(forecast["mean"])
         act_samples = np.array(forecast["samples"])

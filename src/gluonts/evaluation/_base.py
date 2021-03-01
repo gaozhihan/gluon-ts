@@ -14,6 +14,7 @@
 import logging
 import multiprocessing
 import sys
+from functools import partial
 from itertools import chain, tee
 from typing import (
     Any,
@@ -33,6 +34,15 @@ import pandas as pd
 from gluonts.gluonts_tqdm import tqdm
 from gluonts.model.forecast import Forecast, Quantile
 from gluonts.time_feature import get_seasonality
+
+
+def nan_if_masked(a: Union[float, np.ma.core.MaskedConstant]) -> float:
+    return a if a is not np.ma.masked else np.nan
+
+
+def worker_function(evaluator: "Evaluator", inp: tuple):
+    ts, forecast = inp
+    return evaluator.get_metrics_per_ts(ts, forecast)
 
 
 class Evaluator:
@@ -81,7 +91,6 @@ class Evaluator:
     """
 
     default_quantiles = 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9
-    zero_tol = 1e-8
 
     def __init__(
         self,
@@ -139,10 +148,10 @@ class Evaluator:
         ) as it, np.errstate(invalid="ignore"):
             if self.num_workers and not sys.platform == "win32":
                 mp_pool = multiprocessing.Pool(
-                    initializer=_worker_init(self), processes=self.num_workers
+                    initializer=None, processes=self.num_workers
                 )
                 rows = mp_pool.map(
-                    func=_worker_fun,
+                    func=partial(worker_function, self),
                     iterable=iter(it),
                     chunksize=self.chunk_size,
                 )
@@ -233,9 +242,7 @@ class Evaluator:
             np.squeeze(time_series.loc[:date_before_forecast].transpose())
         )
 
-    def seasonal_error(
-        self, past_data: np.ndarray, forecast: Forecast
-    ) -> float:
+    def seasonal_error(self, past_data: np.ndarray, forecast: Forecast):
         r"""
         .. math::
 
@@ -262,7 +269,7 @@ class Evaluator:
 
         seasonal_mae = np.mean(abs(y_t - y_tm))
 
-        return seasonal_mae if seasonal_mae is not np.ma.masked else np.nan
+        return nan_if_masked(seasonal_mae)
 
     def get_metrics_per_ts(
         self, time_series: Union[pd.Series, pd.DataFrame], forecast: Forecast
@@ -280,7 +287,7 @@ class Evaluator:
             mean_fcst = None
         median_fcst = forecast.quantile(0.5)
         seasonal_error = self.seasonal_error(past_data, forecast)
-        metrics = {
+        metrics: Dict[str, Union[float, str, None]] = {
             "item_id": forecast.item_id,
             "MSE": self.mse(pred_target, mean_fcst)
             if mean_fcst is not None
@@ -387,36 +394,23 @@ class Evaluator:
 
         # derived metrics based on previous aggregate metrics
         totals["RMSE"] = np.sqrt(totals["MSE"])
-
-        flag = totals["abs_target_mean"] <= Evaluator.zero_tol
-        totals["NRMSE"] = np.divide(
-            totals["RMSE"] * (1 - flag), totals["abs_target_mean"] + flag
-        )
-
-        flag = totals["abs_target_sum"] <= Evaluator.zero_tol
-        totals["ND"] = np.divide(
-            totals["abs_error"] * (1 - flag), totals["abs_target_sum"] + flag
-        )
-
-        all_qLoss_names = [
-            quantile.weighted_loss_name for quantile in self.quantiles
-        ]
-
-        all_abs_qLoss_names = [
-            quantile.loss_name for quantile in self.quantiles
-        ]
+        totals["NRMSE"] = totals["RMSE"] / totals["abs_target_mean"]
+        totals["ND"] = totals["abs_error"] / totals["abs_target_sum"]
 
         for quantile in self.quantiles:
-            totals[quantile.weighted_loss_name] = np.divide(
-                totals[quantile.loss_name], totals["abs_target_sum"] + flag
+            totals[quantile.weighted_loss_name] = (
+                totals[quantile.loss_name] / totals["abs_target_sum"]
             )
 
         totals["mean_absolute_QuantileLoss"] = np.array(
-            [totals[abs_ql] for abs_ql in all_abs_qLoss_names]
+            [totals[quantile.loss_name] for quantile in self.quantiles]
         ).mean()
 
         totals["mean_wQuantileLoss"] = np.array(
-            [totals[ql] for ql in all_qLoss_names]
+            [
+                totals[quantile.weighted_loss_name]
+                for quantile in self.quantiles
+            ]
         ).mean()
 
         totals["MAE_Coverage"] = np.mean(
@@ -428,28 +422,33 @@ class Evaluator:
         return totals, metric_per_ts
 
     @staticmethod
-    def mse(target, forecast):
-        return np.mean(np.square(target - forecast))
+    def mse(target: np.ndarray, forecast: np.ndarray) -> float:
+        return nan_if_masked(np.mean(np.square(target - forecast)))
 
     @staticmethod
-    def abs_error(target, forecast):
-        return np.sum(np.abs(target - forecast))
+    def abs_error(target: np.ndarray, forecast: np.ndarray) -> float:
+        return nan_if_masked(np.sum(np.abs(target - forecast)))
 
     @staticmethod
-    def quantile_loss(target, quantile_forecast, q):
-        return 2.0 * np.sum(
-            np.abs(
-                (quantile_forecast - target)
-                * ((target <= quantile_forecast) - q)
-            )
+    def quantile_loss(
+        target: np.ndarray, forecast: np.ndarray, q: float
+    ) -> float:
+        return nan_if_masked(
+            2
+            * np.sum(np.abs((forecast - target) * ((target <= forecast) - q)))
         )
 
     @staticmethod
-    def coverage(target, quantile_forecast):
-        return np.mean((target < quantile_forecast))
+    def coverage(target: np.ndarray, forecast: np.ndarray) -> float:
+        return nan_if_masked(np.mean((target < forecast)))
 
     @staticmethod
-    def mase(target, forecast, seasonal_error):
+    def mase(
+        target: np.ndarray,
+        forecast: np.ndarray,
+        seasonal_error: float,
+        exclude_zero_denominator=True,
+    ) -> float:
         r"""
         .. math::
 
@@ -457,44 +456,48 @@ class Evaluator:
 
         https://www.m4.unic.ac.cy/wp-content/uploads/2018/03/M4-Competitors-Guide.pdf
         """
-        flag = seasonal_error <= Evaluator.zero_tol
-        return (np.mean(np.abs(target - forecast)) * (1 - flag)) / (
-            seasonal_error + flag
+        if exclude_zero_denominator and np.isclose(seasonal_error, 0.0):
+            return np.nan
+
+        return nan_if_masked(
+            np.mean(np.abs(target - forecast)) / seasonal_error
         )
 
     @staticmethod
-    def mape(target, forecast):
+    def mape(
+        target: np.ndarray, forecast: np.ndarray, exclude_zero_denominator=True
+    ) -> float:
         r"""
         .. math::
 
             mape = mean(|Y - Y_hat| / |Y|))
         """
-
         denominator = np.abs(target)
-        flag = denominator <= Evaluator.zero_tol
-
-        mape = np.mean(
-            (np.abs(target - forecast) * (1 - flag)) / (denominator + flag)
-        )
-        return mape
+        if exclude_zero_denominator:
+            denominator = np.ma.masked_where(
+                np.isclose(denominator, 0.0), denominator
+            )
+        return nan_if_masked(np.mean(np.abs(target - forecast) / denominator))
 
     @staticmethod
-    def smape(target, forecast):
+    def smape(
+        target: np.ndarray, forecast: np.ndarray, exclude_zero_denominator=True
+    ) -> float:
         r"""
         .. math::
 
-            smape = mean(2 * |Y - Y_hat| / (|Y| + |Y_hat|))
+            smape = 2 * mean(|Y - Y_hat| / (|Y| + |Y_hat|))
 
         https://www.m4.unic.ac.cy/wp-content/uploads/2018/03/M4-Competitors-Guide.pdf
         """
-
         denominator = np.abs(target) + np.abs(forecast)
-        flag = denominator <= Evaluator.zero_tol
-
-        smape = 2 * np.mean(
-            (np.abs(target - forecast) * (1 - flag)) / (denominator + flag)
+        if exclude_zero_denominator:
+            denominator = np.ma.masked_where(
+                np.isclose(denominator, 0.0), denominator
+            )
+        return nan_if_masked(
+            2 * np.mean(np.abs(target - forecast) / denominator)
         )
-        return smape
 
     @staticmethod
     def owa(
@@ -533,14 +536,24 @@ class Evaluator:
         return owa
 
     @staticmethod
-    def msis(target, lower_quantile, upper_quantile, seasonal_error, alpha):
+    def msis(
+        target: np.ndarray,
+        lower_quantile: np.ndarray,
+        upper_quantile: np.ndarray,
+        seasonal_error: float,
+        alpha: float,
+        exclude_zero_denominator=True,
+    ) -> float:
         r"""
         :math:
 
-            msis = mean(U - L + 2/alpha * (L-Y) * I[Y<L] + 2/alpha * (Y-U) * I[Y>U]) /seasonal_error
+            msis = mean(U - L + 2/alpha * (L-Y) * I[Y<L] + 2/alpha * (Y-U) * I[Y>U]) / seasonal_error
 
         https://www.m4.unic.ac.cy/wp-content/uploads/2018/03/M4-Competitors-Guide.pdf
         """
+        if exclude_zero_denominator and np.isclose(seasonal_error, 0.0):
+            return np.nan
+
         numerator = np.mean(
             upper_quantile
             - lower_quantile
@@ -554,16 +567,15 @@ class Evaluator:
             * (target > upper_quantile)
         )
 
-        flag = seasonal_error <= Evaluator.zero_tol
-        return (numerator * (1 - flag)) / (seasonal_error + flag)
+        return nan_if_masked(numerator / seasonal_error)
 
     @staticmethod
-    def abs_target_sum(target):
-        return np.sum(np.abs(target))
+    def abs_target_sum(target) -> float:
+        return nan_if_masked(np.sum(np.abs(target)))
 
     @staticmethod
-    def abs_target_mean(target):
-        return np.mean(np.abs(target))
+    def abs_target_mean(target) -> float:
+        return nan_if_masked(np.mean(np.abs(target)))
 
 
 class MultivariateEvaluator(Evaluator):
@@ -603,6 +615,7 @@ class MultivariateEvaluator(Evaluator):
         eval_dims: List[int] = None,
         target_agg_funcs: Dict[str, Callable] = {},
         custom_eval_fn: Optional[dict] = None,
+        num_workers: Optional[int] = None,
     ) -> None:
         """
 
@@ -624,12 +637,16 @@ class MultivariateEvaluator(Evaluator):
             pass key-value pairs that define aggregation functions over the
             dimension axis. Useful to compute metrics over aggregated target
             and forecast (typically sum or mean).
+        num_workers
+            The number of multiprocessing workers that will be used to process
+            metric for each dimension of the multivariate forecast.
         """
         super().__init__(
             quantiles=quantiles,
             seasonality=seasonality,
             alpha=alpha,
             custom_eval_fn=custom_eval_fn,
+            num_workers=num_workers,
         )
         self._eval_dims = eval_dims
         self.target_agg_funcs = target_agg_funcs
@@ -804,21 +821,3 @@ class MultivariateEvaluator(Evaluator):
                     all_agg_metrics[prefix + metric] = value
 
         return all_agg_metrics, all_metrics_per_ts
-
-
-# This is required for the multiprocessing to work.
-_worker_evaluator: Optional[Evaluator] = None
-
-
-def _worker_init(evaluator: Evaluator):
-    global _worker_evaluator
-    _worker_evaluator = evaluator
-
-
-def _worker_fun(inp: tuple):
-    ts, forecast = inp
-    global _worker_evaluator
-    assert isinstance(
-        _worker_evaluator, Evaluator
-    ), "Something went wrong with the worker initialization."
-    return _worker_evaluator.get_metrics_per_ts(ts, forecast)

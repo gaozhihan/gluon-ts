@@ -23,18 +23,19 @@ from gluonts.dataset.common import DataEntry, Dataset
 from gluonts.dataset.loader import InferenceDataLoader
 from gluonts.model.forecast import Forecast
 from gluonts.model.forecast_generator import (
+    ForecastGenerator,
     SampleForecastGenerator,
     predict_to_numpy,
 )
-from gluonts.torch.component import equals
 from gluonts.model.predictor import OutputTransform, Predictor
 from gluonts.torch.batchify import batchify
+from gluonts.torch.component import equals
 from gluonts.transform import Transformation
 
 
 @predict_to_numpy.register(nn.Module)
 def _(prediction_net: nn.Module, inputs: torch.Tensor) -> np.ndarray:
-    return prediction_net(*inputs).data.numpy()
+    return prediction_net(*inputs).cpu().numpy()
 
 
 class PyTorchPredictor(Predictor):
@@ -47,10 +48,11 @@ class PyTorchPredictor(Predictor):
         freq: str,
         device: torch.device,
         input_transform: Transformation,
-        forecast_generator: SampleForecastGenerator = SampleForecastGenerator(),
+        forecast_generator: ForecastGenerator = SampleForecastGenerator(),
         output_transform: Optional[OutputTransform] = None,
+        lead_time: int = 0,
     ) -> None:
-        super().__init__(prediction_length, freq)
+        super().__init__(prediction_length, freq=freq, lead_time=lead_time)
         self.input_names = input_names
         self.prediction_net = prediction_net
         self.batch_size = batch_size
@@ -116,6 +118,7 @@ class PyTorchPredictor(Predictor):
                 batch_size=self.batch_size,
                 prediction_length=self.prediction_length,
                 freq=self.freq,
+                lead_time=self.lead_time,
                 forecast_generator=self.forecast_generator,
                 input_names=self.input_names,
             )
@@ -137,7 +140,7 @@ class PyTorchPredictor(Predictor):
         with (path / f"prediction_net.json").open("r") as fp:
             prediction_net = load_json(fp.read())
         prediction_net.load_state_dict(
-            torch.load(path / "prediction_net_state")
+            torch.load(path / "prediction_net_state", map_location=device)
         )
 
         parameters["device"] = device

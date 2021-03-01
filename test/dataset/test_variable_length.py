@@ -12,7 +12,7 @@
 # permissions and limitations under the License.
 import itertools
 from functools import partial
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import mxnet as mx
 import numpy as np
@@ -20,6 +20,7 @@ import pytest
 
 from gluonts.dataset.common import ListDataset
 from gluonts.dataset.loader import (
+    DataBatch,
     DataLoader,
     InferenceDataLoader,
     TrainDataLoader,
@@ -29,6 +30,7 @@ from gluonts.testutil.dummy_datasets import get_dataset
 from gluonts.transform import (
     ContinuousTimeInstanceSplitter,
     ContinuousTimeUniformSampler,
+    ContinuousTimePredictionSampler,
 )
 
 
@@ -46,7 +48,7 @@ def loader_factory():
         context_interval_length: float,
         is_train: bool = True,
         override_args: dict = None,
-    ) -> DataLoader:
+    ) -> Iterable[DataBatch]:
 
         if override_args is None:
             override_args = {}
@@ -54,7 +56,17 @@ def loader_factory():
         splitter = ContinuousTimeInstanceSplitter(
             future_interval_length=prediction_interval_length,
             past_interval_length=context_interval_length,
-            train_sampler=ContinuousTimeUniformSampler(num_instances=10),
+            instance_sampler=(
+                ContinuousTimeUniformSampler(
+                    num_instances=10,
+                    min_past=context_interval_length,
+                    min_future=prediction_interval_length,
+                )
+                if is_train
+                else ContinuousTimePredictionSampler(
+                    min_past=context_interval_length
+                )
+            ),
         )
 
         kwargs: Dict[str, Any] = dict(
@@ -68,8 +80,8 @@ def loader_factory():
         kwargs.update(override_args)
 
         if is_train:
-            return TrainDataLoader(
-                num_batches_per_epoch=22, num_workers=None, **kwargs
+            return itertools.islice(
+                TrainDataLoader(num_workers=None, **kwargs), 22
             )
         else:
             return InferenceDataLoader(num_workers=None, **kwargs)
